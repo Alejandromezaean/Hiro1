@@ -1,15 +1,15 @@
 {
     "name": "Alejandro",
     "male": 1,
-    "age": 50.0,
-    "currentSmoker": 1,
-    "cigsPerDay": 14.0,
-    "BPMeds": 1,
+    "age": 21.0,
+    "currentSmoker": 0,
+    "cigsPerDay": 0.0,
+    "BPMeds": 0,
     "diabetes": 0,
-    "totChol": 80.0,
+    "totChol": 90.0,
     "sysBP": 92.0,
-    "diaBP": 85.0,
-    "BMI": 32.0,
-    "heartRate": 78.0,
-    "glucose": 100.0
+    "diaBP": 88.0,
+    "BMI": 28.0,
+    "heartRate": 90.0,
+    "glucose": 90.0
 }

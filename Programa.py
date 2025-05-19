@@ -27,14 +27,16 @@ from playsound import playsound
 cred = credentials.Certificate("Base.json") 
 firebase_admin.initialize_app(cred)
 
-key = Fernet.generate_key()  # o carga desde archivo
+key = Fernet.generate_key()
 cipher_suite = Fernet(key)
 
 db = firestore.client()
 
+#Credenciales Google
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = r"C:\redesneuronales-451900-bd460539cbb2.json"
 health_data_dir = './health_data'
 os.makedirs(health_data_dir, exist_ok=True)
+#Modelos IA
 model = joblib.load('IAhipertension.pkl')
 scaler = joblib.load('IAscaler.pkl')
 
@@ -55,9 +57,7 @@ def decrypt_name(encrypted_name):
 def save_encrypted_user_data(data):
     # Cifrar solo el nombre
     data["name"] = encrypt_name(data["name"])
-
-    # Generar un ID anónimo para el documento (paciente 1, 2, etc. si quieres)
-    random_id = str(uuid.uuid4())  # puedes usar un contador si prefieres 'paciente_1'
+    random_id = str(uuid.uuid4()) 
 
     # Guardar en Firestore
     doc_ref = db.collection(collection_name).document(random_id)
@@ -95,9 +95,6 @@ def load_pickle(path):
     with open(path, 'rb') as f:
         encoding_dict = pickle.load(f)
     return encoding_dict
-
-#Rastrear usuarios y el conteo de veces que se ha detectado su rostro en la sesión
-collected_data_users = {}
 
 def detect(img, detector, encoder, encoding_dict):
     global detection_active
@@ -146,7 +143,7 @@ def detect(img, detector, encoder, encoding_dict):
                     with open(data_path, 'w') as f:
                         json.dump(data, f, indent=4)
                     
-                
+            #Tercer Conteo    
             elif collected_data_users[name]['count'] == 3:
                 data["heartRate"] = tension
                 st_app.speak(f"{name}, recuerda que tu última tension fue {tension}. ¿Quieres actualizar tus datos?")
@@ -221,7 +218,6 @@ class SpeechToTextApp:
         self.engine.say(text)
         self.engine.runAndWait()
 
-
 def save_data(name):
     data = {}
     data["name"] = name
@@ -229,12 +225,12 @@ def save_data(name):
     st_app.speak(f"¿Eres hombre?")
     data["male"] = st_app.transcribe_from_mic()
     data["male"] = 1 if data["male"] and 'sí' in data["male"].lower() else 0
-    st_app.speak(f"¿Cuál es tu edad?, por favor solo diga el numero")
+    st_app.speak(f"¿Cuál es tu edad?")
     data["age"] = (st_app.transcribe_from_mic())
     st_app.speak(f"¿Eres fumador?")
     data["currentSmoker"] = st_app.transcribe_from_mic()
     data["currentSmoker"] = 1 if data["currentSmoker"] and 'sí' in data["currentSmoker"].lower() else 0
-    st_app.speak(f"¿Cuántos cigarrillos fumas por día?, por favor solo diga el numero")
+    st_app.speak(f"¿Cuántos cigarrillos fumas por día?")
     data["cigsPerDay"] = (st_app.transcribe_from_mic())
     st_app.speak(f"¿Estás tomando medicamentos para la presión arterial?")
     data["BPMeds"] = st_app.transcribe_from_mic()
@@ -255,13 +251,24 @@ def save_data(name):
     st_app.speak(f"¿Cuál es tu nivel de glucosa?")
     data["glucose"] = (st_app.transcribe_from_mic())
 
+    nombres = {
+    "age": "edad",
+    "cigsPerDay": "cigarrillos por día",
+    "totChol": "colesterol total",
+    "sysBP": "presión sistólica",
+    "diaBP": "presión diastólica",
+    "BMI": "índice de masa corporal",
+    "heartRate": "frecuencia cardíaca",
+    "glucose": "nivel de glucosa"
+}
+    
     for key in ["age", "cigsPerDay", "totChol", "sysBP", "diaBP", "BMI", "heartRate", "glucose"]:
         try:
             data[key] = float(data[key])
         except ValueError:
-            valor_incorrecto = data[key]  
-            st_app.speak(f"El valor ingresado para {key} fue '{valor_incorrecto}'")
-            st_app.speak(f"Por favor, vuelve a repetir el valor de {key}")
+            nombre_voz = nombres.get(key, key)  
+            st_app.speak(f"No fue posible identificar el valor ingresado de {nombre_voz}")
+            st_app.speak(f"Por favor, vuelve a repetir el valor de {nombre_voz}")
             data[key] = st_app.transcribe_from_mic()
             data[key] = float(data[key])
 
@@ -269,19 +276,19 @@ def save_data(name):
     with open(data_path, 'w') as f:
         json.dump(data, f)
 
-# Guardar datos modificados
+    #Cifrar Datos
     save_encrypted_user_data(data)
 
-    xn = np.array([data["male"], data["age"] , data["currentSmoker"],data["cigsPerDay"], data["BPMeds"], data["diabetes"], data["totChol"], data["sysBP"], data["diaBP"], data["BMI"], data["heartRate"], data["glucose"]])
+    xn = np.array([data["male"], data["age"] , data["currentSmoker"],data["cigsPerDay"], data["BPMeds"], data["diabetes"],
+                    data["totChol"], data["sysBP"], data["diaBP"], data["BMI"], data["heartRate"], data["glucose"]])
     Xn_std = scaler.transform(xn.reshape(1, -1))  # Escalado y redimensionado
 
-       # Realizamos la predicción
+       #Predicción
     resul = model.predict(Xn_std)
     if resul[0] == 0:
-        st_app.speak(f"{name}, segun la recolección de sus datos medicos, usted no tiene peligro de padecer hipertension, sin embargo, recuerde tener una vida saludable")
+        st_app.speak(f"{name}, segun la recolección de sus datos medicos, usted no tiene peligro de padecer hipertension.")
     else:
-        st_app.speak(f"{name}, segun la recolección de sus datos medicos, usted podria padecer de hipertension, por favor consulte con su medico lo mas pronto posible")
-        message = "Tienes hipertensión."
+        st_app.speak(f"{name}, segun la recolección de sus datos medicos, usted podria padecer de hipertension")
 
 def esperar_comando_activacion():
         recognizer = sr.Recognizer()
@@ -308,7 +315,7 @@ def esperar_comando_activacion():
                 transcription = transcription.strip().lower()
                 print("Transcripción:", transcription)
 
-                if "oye hero" in transcription or transcription == "hero":
+                if "oye hero" in transcription or transcription == "hero" or transcription == "giro" or transcription == "oye giro" :
                     print("¡Activación detectada!")
                     return True
                 else:

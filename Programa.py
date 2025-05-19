@@ -21,6 +21,8 @@ from datetime import datetime
 import firebase_admin
 from firebase_admin import credentials, firestore
 import uuid
+from playsound import playsound
+
 ##Credenciales Firestone
 cred = credentials.Certificate("Base.json") 
 firebase_admin.initialize_app(cred)
@@ -73,12 +75,7 @@ def get_user_data(user_id):
     else:
         print("Usuario no encontrado.")
         return None
-
-def generate_patient_id():
-    docs = db.collection(collection_name).stream()
-    count = sum(1 for _ in docs)
-    return f"paciente_{count + 1}"
-
+    
 collected_data_users = {}
 
 def get_face(img, box):
@@ -103,6 +100,7 @@ def load_pickle(path):
 collected_data_users = {}
 
 def detect(img, detector, encoder, encoding_dict):
+    global detection_active
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     results = detector.detect_faces(img_rgb)
     for res in results:
@@ -137,17 +135,38 @@ def detect(img, detector, encoder, encoding_dict):
                     st_app.speak("¿Cuál es tu tensión arterial actual?")
                     tension = st_app.transcribe_from_mic()
                     data_path = os.path.join(health_data_dir, f'{name}_health.json')
+                    if os.path.exists(data_path):
+                        with open(data_path, 'r') as f:
+                            data = json.load(f)
+                    else:
+                        data = {}
+
+                    data["heartRate"] = tension
+                    data["heartRate"] = float(data["heartRate"])
                     with open(data_path, 'w') as f:
-                        json.dump(tension, f)
+                        json.dump(data, f, indent=4)
+                    
                 
             elif collected_data_users[name]['count'] == 3:
-                st_app.speak(f"{name}, recuerda que tu última tensión fue {tension}. ¿Quieres actualizar tus datos?")
+                data["heartRate"] = tension
+                st_app.speak(f"{name}, recuerda que tu última tension fue {tension}. ¿Quieres actualizar tus datos?")
                 response = st_app.transcribe_from_mic()
                 if response and 'sí' in response.lower():
                     save_data(name)
                 else:
                     st_app.speak("¿Cuál es tu tensión arterial actual?")
                     tension = st_app.transcribe_from_mic()
+                    data_path = os.path.join(health_data_dir, f'{name}_health.json')
+                    if os.path.exists(data_path):
+                        with open(data_path, 'r') as f:
+                            data = json.load(f)
+                    else:
+                        data = {}
+
+                    data["heartRate"] = tension
+                    data["heartRate"] = float(data["heartRate"])
+                    with open(data_path, 'w') as f:
+                        json.dump(data, f, indent=4)
 
             cv2.rectangle(img, pt_1, pt_2, (0, 255, 0), 2)
             cv2.putText(img, name + f'__{distance:.2f}', (pt_1[0], pt_1[1] - 5), cv2.FONT_HERSHEY_SIMPLEX, 1,
@@ -155,6 +174,7 @@ def detect(img, detector, encoder, encoding_dict):
         else:
             cv2.rectangle(img, pt_1, pt_2, (0, 0, 255), 2)
             cv2.putText(img, name, pt_1, cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 1)
+    detection_active = False
     return img
 
 class SpeechToTextApp:
@@ -201,6 +221,7 @@ class SpeechToTextApp:
         self.engine.say(text)
         self.engine.runAndWait()
 
+
 def save_data(name):
     data = {}
     data["name"] = name
@@ -208,12 +229,12 @@ def save_data(name):
     st_app.speak(f"¿Eres hombre?")
     data["male"] = st_app.transcribe_from_mic()
     data["male"] = 1 if data["male"] and 'sí' in data["male"].lower() else 0
-    st_app.speak(f"¿Cuál es tu edad?")
+    st_app.speak(f"¿Cuál es tu edad?, por favor solo diga el numero")
     data["age"] = (st_app.transcribe_from_mic())
     st_app.speak(f"¿Eres fumador?")
     data["currentSmoker"] = st_app.transcribe_from_mic()
     data["currentSmoker"] = 1 if data["currentSmoker"] and 'sí' in data["currentSmoker"].lower() else 0
-    st_app.speak(f"¿Cuántos cigarrillos fumas por día?")
+    st_app.speak(f"¿Cuántos cigarrillos fumas por día?, por favor solo diga el numero")
     data["cigsPerDay"] = (st_app.transcribe_from_mic())
     st_app.speak(f"¿Estás tomando medicamentos para la presión arterial?")
     data["BPMeds"] = st_app.transcribe_from_mic()
@@ -238,13 +259,15 @@ def save_data(name):
         try:
             data[key] = float(data[key])
         except ValueError:
-            messagebox.showerror("Error", f"El valor ingresado en {key} no es numérico.")
+            valor_incorrecto = data[key]  
+            st_app.speak(f"El valor ingresado para {key} fue '{valor_incorrecto}'")
+            st_app.speak(f"Por favor, vuelve a repetir el valor de {key}")
+            data[key] = st_app.transcribe_from_mic()
+            data[key] = float(data[key])
 
     data_path = os.path.join(health_data_dir, f'{name}_health.json')
     with open(data_path, 'w') as f:
         json.dump(data, f)
-
-    #document_id = known_users.get(name)  # Aquí name puede ser la clave del diccionario
 
 # Guardar datos modificados
     save_encrypted_user_data(data)
@@ -256,11 +279,46 @@ def save_data(name):
     resul = model.predict(Xn_std)
     if resul[0] == 0:
         st_app.speak(f"{name}, segun la recolección de sus datos medicos, usted no tiene peligro de padecer hipertension, sin embargo, recuerde tener una vida saludable")
-        message = "No tienes hipertensión."
     else:
         st_app.speak(f"{name}, segun la recolección de sus datos medicos, usted podria padecer de hipertension, por favor consulte con su medico lo mas pronto posible")
         message = "Tienes hipertensión."
-    messagebox.showinfo("Resultado", message)
+
+def esperar_comando_activacion():
+        recognizer = sr.Recognizer()
+        with sr.Microphone() as source:
+            print("Esperando comando de activación ('oye hiro' o 'hiro')...")
+            recognizer.adjust_for_ambient_noise(source)
+            audio = recognizer.listen(source)
+
+        try:
+            client = speech.SpeechClient()
+            audio_data = audio.get_wav_data()
+            recognition_audio = speech.RecognitionAudio(content=audio_data)
+            config = speech.RecognitionConfig(
+            encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+            sample_rate_hertz=44100,
+            language_code="es-CO"
+            )
+            response = client.recognize(config=config, audio=recognition_audio)
+
+            if response.results:
+                transcription = ''
+                for result in response.results:
+                    transcription += result.alternatives[0].transcript + ' '
+                transcription = transcription.strip().lower()
+                print("Transcripción:", transcription)
+
+                if "oye hero" in transcription or transcription == "hero":
+                    print("¡Activación detectada!")
+                    return True
+                else:
+                    print("No se detectó la palabra clave.")
+                    return False
+            else:
+                return False
+        except Exception as e:
+            print(f"Error durante el reconocimiento de activación: {e}")
+            return False
 
 if __name__ == "__main__":
     face_encoder = InceptionResNetV2()
@@ -277,10 +335,14 @@ if __name__ == "__main__":
         ret, frame = cap.read()
         if not ret:
             break
-        frame = detect(frame, face_detector, face_encoder, encoding_dict)
         cv2.imshow('camera', frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
+        if esperar_comando_activacion():
+            playsound("Start.mp3")
+            st_app.speak("Hola, Soy Hiro")
+            detection_active = True
+            detect(frame, face_detector, face_encoder, encoding_dict)
 
     cap.release()
     cv2.destroyAllWindows()
